@@ -1,0 +1,228 @@
+---
+title: "Time Series HW 2"
+author: "Kylie Taylor"
+date: "2/14/2019"
+output: pdf_document
+---
+
+
+## Question 1##
+
+The following plot is a plot of the time series. There is an obvious positive trend in the series. Income is clearly increasing with each period. 
+
+```{r}
+library(aTSA)
+library(ggplot2)
+library(stats)
+income <- read.csv("~/Documents/TSHW2 .csv")
+TS <- ts(income, start = c(1996, 1), frequency = 4)
+ts <- data.frame(TS)
+ggplot(ts, aes(observation_date, y)) + geom_line() +
+  xlab("Quarter") + ylab("Income")
+```
+
+
+
+The Dickey Fuller test results below reveal that there is very strong indications of a unit root. A unit root implies that a shock in one period had lasting effects on the series. I ran three types of ADF tests with up to 4 lags, 1) no constant and no trend, 2) with a constant and no trend, and 3) with a constant and trend. The p-values from every test reveal that there is a unit root. My choice of test would be the ADF with a lag of 1, since it has the highest p-value across all three types of tests.
+
+I would continue working with the series by taking the first difference of the series. This would hopefully return a stationary series with a constant mean and variance.
+
+
+```{r}
+adf.test(ts$y, nlag = NULL, output = TRUE)
+```
+
+
+The following plots are the ACF's and PACF's of the original series and the first differenced series. The plots of the original series and the transformed series reveal that the first differences make the series appear to be stationary. This is validated by the ACF's and PACF's. The ACF of the original series reveals very high correlation between lags of income and the PACF reveals...
+
+The ACF for the transformed series reveals much less persistent shocks, and converges to a correlation of 0 significantly quicker than the original series. The PACF plot has a large spike only at the first lag, which means that all the higher-order auto-correlations are effectively explained by the first lag auto-correlation.
+
+The two models I would choose to start with would be the ARMA(1,1) and the ARMA(1,2). I choose this by observing the ACF's and PACF's of the transformed series. The large spike at the first lag of the PACF reveals that I should include an AR term of at least the first order. The first and second lags in the ACF are greater than 0.2 and -0.2, respectively, which leads me to include at least the first order MA term.
+
+```{r}
+set.seed(123456)
+diff.y <- diff(ts$y, differences = 1)
+par(mfrow=c(2,3))
+
+plot.ts(ts$y, ylab= "Income", main = "Original Series")
+acf(ts$y, lag.max=12, ylab = "ACF")
+pacf(ts$y, lag.max=12, ylab="PACF")
+
+plot.ts(diff.y, ylab= "Income", main = "Transformed Series")
+acf(diff.y, lag.max=12, ylab = "ACF")
+pacf(diff.y, lag.max=12, ylab="PACF")
+```
+
+
+
+The AIC and the BIC of the ARMA(1,1) and ARMA(1,2) reveal that the ARMA(1,1) is a slightly better model to use since it has marginally smaller AIC and BIC.
+
+```{r}
+library(tseries)
+ARMA1 <- arima(x=diff.y, order=c(1,0,1), method="ML")
+ARMA2 <- arima(x = diff.y, order = c(1,0,2), method="ML")
+pander::pander(ARMA1)
+pander::pander(ARMA2)
+AIC1 = AIC(ARMA1)
+BIC1 = AIC(ARMA1, k = log(length(ts$y)))
+AIC2 = AIC(ARMA2)
+BIC2 = AIC(ARMA2, k = log(length(ts$y)))
+AIC1
+BIC1
+AIC2
+BIC2
+```
+
+
+** do a Newwy-West test here **
+I found that the ARMA(1,1) residuals are also stationary. The ACF has one large spike at the first lag, revealing that the series of residuals may be MA(1). The PACF is contained withing the 0.1 and -0.1 bounds, which reveals that there is not likely a AR(q) term. 
+
+```{r}
+R <- data.frame(resid(ARMA1))
+fit<-lm()
+abline(fit)
+summary(fit) # standard estimates
+lmtest::coeftest(fit,vcov=NeweyWest(fit,verbose=T))
+
+
+library(sandwich)
+NeweyWest(ARMA1)
+
+par(mfrow = c(2,3))
+plot.ts(R, ylab= "Residuals", main = "Transformed Series")
+acf(R, lag.max=12, ylab = "ACF")
+pacf(R, lag.max=12, ylab="PACF")
+```
+
+
+
+The ARCH test are testing the following model for various p's:
+
+$a^2_t = \alpha_0 + \alpha_1 a^2_{t-1} + \alpha_2 a^2_{t-2} + ... + \alpha_p a^2_{t-p} + e_t$
+ 
+Where we are testing if 
+
+$\alpha_0 = \alpha_1 = \alpha_2 = ... = \alpha_p = 0$
+
+If hypothesis is accepted then we can say that series have no ARCH effects. If it is rejected then one or more coefficients are non zero and we say that there are ARCH effects.�+𝑒𝑡
+
+The p-values of the LM test reveal that we reject the null hypothesis that all the regressors are equal, for all various orders (4, 8, 12, 16, 20, and 24 orders were tested). This leads me to believe that heteroskedasticity is present. Based on the output of the LM test, I see that ARCH orders 20 and 24 do not have significant p-values, which indicates that there is heteroskedasticity of those orders, and possibly higher.
+
+
+```{r}
+library(aTSA)
+arch.test(ARMA1, output = TRUE)
+```
+
+
+
+The following plots are of various ARMA models that I thought make sense economically and statistically. I included an ARMA(1,1), ARMA(1,2), AR(1), MA(1), and MA(2). The two models I chose are the AR(1) and the ARMA(1,1). The statistical reasoning for picking the AR(1) model was that it has the lowest AIC's and BIC's out of all the models tested, 2876.997 and 2887.009 respectively. My economic reasoning for picking the AR(1) model was because income from last quarter is likely most similar to income of this quarter in comparison to every past quarters income. The AR(1) is the most simple model I could use, and therefore does not lose much statistical significance barbecue of its lack of complexity. The next model I chose was the ARMA(1,1). Although this model does not have the lowest AIC and BIC coefficient of all the models, it certainly does not have the worst AIC and BIC coefficients, at 2878.284 and 2891.635 respectively. These AIC and BIC coefficients are pretty close to the AIC's and BIC's of the AR(1) model, revealing that this model does well, but not the best statistically. My main driving reason for picking this as a top two models, was my economic reasoning. I think it is important to include at least the first AR order, because it has shown to be the best predictor of current quarters income, which is intuitive. I also think to include a MA(1) term because errors, or noise, from last quarters' income is also likely to affect this quarters' income. If an individual's income takes a hit or jumps up quite a bit, the effects from that will likely still be felt in the current quarter.
+
+
+```{r}
+library(pander)
+ARMA1 <- arima(x=diff.y, order=c(1,0,1), method="ML")
+pander(ARMA1)
+AIC(ARMA1)
+AIC(ARMA1, k = log(length(ts$y)))
+
+ARMA2 <- arima(x = diff.y, order = c(1,0,2), method="ML")
+pander(ARMA2)
+AIC(ARMA2)
+AIC(ARMA2, k = log(length(ts$y)))
+
+ARMA3 <- arima(x = diff.y, order = c(1,0,0), method="ML")
+pander(ARMA3)
+AIC(ARMA3)
+AIC(ARMA3, k = log(length(ts$y)))
+
+ARMA4 <- arima(x = diff.y, order = c(0,0,1), method="ML")
+pander(ARMA4)
+AIC(ARMA4)
+AIC(ARMA4, k = log(length(ts$y)))
+
+ARMA5 <- arima(x = diff.y, order = c(0,0,2), method="ML")
+pander(ARMA5)
+AIC(ARMA5)
+AIC(ARMA5, k = log(length(ts$y)))
+
+```
+
+
+
+## 2 
+
+# a)
+# What is heteroskedasticity? Explain intuitively why that it might be important for the specific series you are using. Graph a data series that exhibits heteroskedasticity. Explain how would you perform a test for heteroskedasticity, and how, if heteroskedasticty is present, would you decide how to model it.
+
+
+Heteroskedasticity is when the errors of a series do not have constant variance. This might be important for a specific series an individual is using, because observations with large variances will have a larger effect than other observations, resulting in bias. In the case of the income example above, if a particular quarter has a large variance of income in comparison to other quarters, the model we run will try to fit to that variance, and the findings will be biased or swayed because of this uncommon observation.
+
+```{r, echo=FALSE}
+set.seed(12)
+n=rep(1:100,2)
+a=0
+b = 1
+sigma2 = n^1.3
+eps = rnorm(n,mean=0,sd=sqrt(sigma2))
+y=a+b*n + eps
+mod <- lm(y ~ n)
+plot(n, y, main = "Graph with Heteroskedasticity", xlab = "Time", ylab = "Values")
+plot(resid(mod), main = "Residuals of Series with Heteroskedasticity", xlab = "Observation", ylab = "Residual Value")
+abline(h=0, col = 'red')
+```
+
+
+Instead of drawing a graph of a series with heteroskedasticity, I figured I would simulate a series with heteroskedasticity and its residuals. A series with heteroskedasticity has a cone shaped appearance, where the plotted points either get further apart of closer together over time. Heteroskedasticity can be confirmed by analyzing the residuals. Homoskedastistic errors will be evenly distributed around zero, whereas heteroskedastistic errors will also have a cone shaped distribution, revealing that variance is not constant over time. 
+
+I would first examine the graphs of the series and residuals to see if I can visually identify heteroskedasticity. 
+Next, I would use the Breusch-Pagan test for heteroskedasticity to verify if heteroskedasticity is present in the series. I do this by testing 
+
+$u^2_t = \alpha_0 + \alpha_1 x_1 + \alpha_2 x_2 + ... + \alpha_p x_p + e_t$
+ 
+Where we are testing if 
+
+$\alpha_0 = \alpha_1 = \alpha_2 = ... = \alpha_p = 0$
+
+If I find that my series has heteroskedasticty or ARCH or GARCH errors, I would re-run my model with heteroskedastic robust standard errors, or preform a weighted least squares instead.
+
+
+
+# b) 
+# Explain what is autocorrelation; which OLS properties are not valid in the presence of autocorrelation, and which OLS properties remain valid? Explain what are the issues arising by the presence of autocorrelation when there is a lagged dependent variable, and how can we overcome the issue. Also, explain how we do inference in the presence of autocorrelation.
+
+
+Auto-correlation is when a given variable's observation is correlated to past observation(s) of the same variable. The OLS property that is not valid in the face of auto-correlation is TS5, no serial correlation. TS1 - TS4 and TS6 are valid under auto-correlation. Issues arising by the presence of auto-correlation when there is a lagged dependent variables is that the OLS estimators could be biased and inconsistent. In an AR(1) model, the lag of the dependent variable is correlated with the residuals of the lag, which is also correlated with current residuals. This means that contemporaneous exogeneity does not hold. In the presence of auto-correlation, OLS standard errors overstate statistical significance because there is less independent variation. To correct for this issue, I would first difference the series. 
+We would do inference in the presence of auto-correlation first by checking the model's specifications, making adjustments I feel that are necessary (like adding more lags) and testing for auto-correlation on the correctly specified model. Next I would take the first difference of the dependent variable, in hopes to make the series stationary. Last I would use Newey-West auto-correlation (and heteroskedasticity) adjusted standard errors. 
+
+
+
+
+## 3
+
+#Find the optimal predictor, prediction error and prediction error variance, for the AR(1) model. Write down what those are for 1, 2 and 3 periods forecasts. Wheredoes the prediction error variance converge to?
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
