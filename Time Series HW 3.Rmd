@@ -1,0 +1,192 @@
+---
+title: "Time Series HW 3"
+author: "Kylie Taylor"
+date: "3/8/2019"
+output: pdf_document
+---
+
+
+##Question 1: Forecasting
+
+
+I will be using a data set obtained from the FRED on the number of vehicle sales each month in the United States, starting in Jan 1976 until Jan 2019. 
+The following plot is a plot of the time series. 
+
+```{r, include = FALSE}
+library(aTSA)
+library(ggplot2)
+library(stats)
+library(knitr)
+library(forecast)
+library(pander)
+library(tseries)
+library(aTSA)
+sales <- read.csv("~/Downloads/VehicleSales.csv", comment.char="#")
+```
+
+```{r, echo =FALSE}
+sales$y <- sales$sales
+TS <- ts(sales, start = c(1976, 1), frequency = 1)
+ts <- data.frame(TS)
+ggplot(ts, aes(date, y)) + geom_line() +
+  xlab("Month") + ylab("Sales")
+```
+
+
+
+The two models I chose based off performance are the ARMA(12,1) and the ARMA(12,2). It makes sense to include an AR term of order 12 because car sales tend to be periodic with a period of about a year, think of car sales at Christmas time. I took the first difference of sales since it did appear to have a unit root. 
+
+Below are the model estimations. We can see that the AR terms of order 6, 8 and 12 are significant in both models, and that both MA terms are significant in both models. Both models are comparable in their performance, according to the AIC and BIC coefficients.
+
+
+```{r, echo=FALSE}
+library(stargazer)
+diff.y <- diff(ts$y, differences = 1)
+ARMA4 <- arima(x = diff.y, order = c(12,0,1), method="ML")
+ARMA5 <- arima(x = diff.y, order = c(12,0,2), method="ML")
+summary(ARMA4)
+summary(ARMA5)
+AIC(ARMA4, k = log(length(ts$y)))
+AIC(ARMA5, k = log(length(ts$y)))
+```
+
+
+
+The Root Mean Squared Errors are 97.73 for ARMA(12,1) and 97.31 for ARMA(12,2). This reveals that the second model does marginally better. 
+
+```{r, echo=FALSE}
+pander(accuracy(ARMA4))
+pander(accuracy(ARMA5))
+```
+
+
+
+The DM test reveals that the ARMA(12,1) has higher error, since the DM coefficient is greater than 0. Even though the coefficient is positive, this finding is not statistically significant, with a p-value of 0.303.
+
+
+```{r, echo=FALSE}
+dm.test(resid(ARMA4), resid(ARMA5), h=1)
+```
+
+
+
+The model I pick for forecasting is the ARMA(12,2), because it dominates over the ARMA(12,1) in every test of fit. The ARMA(12,2) has the lower AIC, smaller RMSE and has a smaller residuals than the ARMA(12,1). This model also happens to be the model that is my first choice in terms of fit and has lower AIC and BIC coefficients. Despite these findings, the ARMA(12,2) preforms very slightly better than the ARMA(12,1), so the ARMA(12,1) would still be a valid choice of model, just slightly worse than the ARMA(12,2).
+
+
+Below is the output from my 15 period ahead forecast. As we can see, there are predictions of first differences annual number of car sales, but the parameter of interest is the standard error of these predictions. The ARMA(12,1) has greater standard errors than the ARMA(12,2), especially as the number of forecasts increases. I am not confident that theses models do a good job at predicting sales. In longer forecasts, the standard error is sometimes larger than the predicted value. This means the model cannot predict that future value with any statistical accuracy at all. 
+Possible problems with thees forecasts is that we are looking too far ahead, and there isn't enough data to make strong and convincing forecasts. 
+
+
+```{r, echo=FALSE}
+P1 <- predict(ARMA4, n.ahead = 15)
+P2 <- predict(ARMA5, n.ahead = 15)
+pander(P1)
+pander(P2)
+```
+
+
+
+These are plots of the 15 period horizon forecast of both models. I removed the first 480 observations, so the graph would be more zoomed in. The graphs are almost identical, which matches with my findings that both models preform about the same, but with the ARMA(12,2) preforming slightly better.
+
+```{r, echo=FALSE}
+plot(forecast::forecast(ARMA4, h=15), xlim = c(480, 531), main="15 Period Forecast with ARMA(12,1)")
+```
+
+
+```{r, echo=FALSE}
+plot(forecast::forecast(ARMA5, h=15), xlim = c(480, 531), main="15 Period Forecast with ARMA(12,2)")
+```
+
+
+
+##Question 2: Cointegration
+
+```{r, include=FALSE}
+IR <- read.csv("/Users/kylietaylor/Documents/UT Austin/Spring 2019/intrates.csv", header=TRUE)
+IR.ts <- data.frame(ts(IR))
+```
+
+The plot below shows the interest rates of the two bond series, r1 and r3. Both series appear to have a positive trend and are likely to have a random walk. We can also see that these two series will definitely be cointegrated because they move in almost perfect unison.  
+
+
+```{r, echo=FALSE}
+plot(IR.ts$r1, type = "l", main="Plot of Bond Series, r1 and r3", xlab = "Time Periods", ylab = "Interest Rates")
+lines(IR.ts$r3, col = 'red')
+```
+
+
+
+Below is the output from the Dickey Fuller tests I ran on the two series. The Dickey Fuller identifies unit roots by testing the null hypothesis, $H_0: \Phi =1$, where $\Phi$ is the first coefficient of the Dickey Fuller regression. If $\Phi$ is equal to 1, there is evidence of a unit root. This means that we want small p-values to reject that the series does have a unit root. 
+The Dickey Fuller tests reveal that both the r1 and r3 series have a unit root, even for DF tests with 5 lags included. This is a problem since this means both r1 and r3 are I(1).
+
+```{r, echo=FALSE}
+aTSA::adf.test(IR.ts$r1)
+aTSA::adf.test(IR.ts$r3)
+```
+
+
+
+Next I preformed a regression of explaining r1 from r3, and explaining r3 from r1. The output from both regressions is displayed in the table below. We see that they have very high correlation, with an $R^2 = 0.993$. The estimates are extremely statistically significant in estimating each other as well. I also included a plot of the residuals for good measure. The residuals appear to be stationary, and indicator of cointegration.
+
+
+```{r, echo=FALSE}
+lm1 <- lm(r1~r3, data=IR.ts)
+lm2 <- lm(r3~r1, data=IR.ts)
+stargazer::stargazer(lm1, lm2, type = "text")
+
+par(mfrow = c(2,1))
+plot(resid(lm1), type = "l", main = "Residuals from Linear Models")
+plot(resid(lm2), type = "l")
+```
+
+
+
+Now I will test for cointegration. The Engle-Granger Cointegration Test reveals that these series are cointegrated. The Engle-Granger Cointegration Test tests against a $H_0:$ no cointegration, this means for high p-values, the series are not cointegrated, but for low p-values, the series are cointegrated.
+The tests revealed that for a series with no trend, r1 and r3 are cointegrated, but if a linear trend and quadratic trend are included, the two series are not cointegrated. These are intuitive findings because if we detrend the series, this could help solve the unit root problem, thus the cointegration problem.
+
+
+```{r, echo=FALSE}
+aTSA::coint.test(IR.ts$r1, IR.ts$r3)
+aTSA::coint.test(IR.ts$r3, IR.ts$r1)
+```
+
+
+
+Cointegration in the most simple terms is when non-stationary variables appear to move in unison. To be more specific, variables are cointegrated if the random variables are non stationary, and there exists a stationary linear combination of the variables. In notation, if there are two random variables $X_t$ and $Y_t$, and
+$X_t \sim I(1)$ as well as $Y_t \sim I(1)$
+
+If $Y_t = \beta_0 + \beta_{1}X_t + e_t$ have $\hat{e_t} \sim I(0)$
+
+then the two series are cointegrated.
+
+
+Interpreting the results above, the non-stationary series r1 and r3 are cointegrated, because the residuals from the linear regression of $r1_t = \beta_0 + \beta_{1}r3_t + e_t$ are stationary. Intuitively, this means that for any change in r3, we expect to find r1 within a predictable distance of it, and vice versa. If we know where r1 or r3 are going, we have a pretty good idea of where to find r3 or r1 respectively.
+
+
+
+
+
+##Question 3:
+
+#1) Cholesky Decomposition:
+
+See attachment.
+
+#2) Short Run Restrictions:
+
+See attachment.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
